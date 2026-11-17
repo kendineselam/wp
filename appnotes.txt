@@ -1,0 +1,2 @@
+- Bildirimler artık ekranda istediğin yerde çıkıyor (Bildirimler menüsü)
+- Uygulama kendini GitHub'dan güncelleyebiliyor
