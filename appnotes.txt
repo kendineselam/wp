@@ -1,2 +1,1 @@
-- Sürüm numaraları artık "Ana uygulama" ve "Özellikler" diye ayrı ve anlaşılır yazıyor
-- Bildirimler ekranda istediğin yerde çıkıyor (Bildirimler menüsü)
+- Bildirim ekranda takılı kalma sorunu giderildi (fare üstünde unutulsa bile en geç süre + 15 sn sonra kapanır)
