@@ -78,6 +78,7 @@
                     #pr-pdf-body { position: static !important; padding: 0 !important; overflow: visible !important; }
                     #pr-pdf-pages { position: static !important; overflow: visible !important; height: auto !important; padding: 0 !important; background: #fff !important; }
                     #pr-pdf-pages canvas { display: block !important; width: 100% !important; height: auto !important; margin: 0 !important; box-shadow: none !important; border-radius: 0 !important; break-after: page; page-break-after: always; }
+                    #pr-pdf-pages img { display: block !important; width: auto !important; height: auto !important; max-width: 100% !important; max-height: 250mm !important; object-fit: contain !important; margin: 0 auto !important; box-shadow: none !important; border-radius: 0 !important; cursor: default !important; break-inside: avoid; page-break-inside: avoid; }
                 }
             `;
             (document.head || document.documentElement).appendChild(st);
@@ -403,5 +404,155 @@
     document.addEventListener('click', function (e) {
         if (!e.isTrusted) return;
         if (isPdfBubble(e.target)) startAutoOpen();
+    }, true);
+
+    // ============================================================
+    // RESİMLER: sohbetteki resme tıklayınca kendi önizlememizde aç
+    // (yazdır / indir / yeni sekmede aç). Tıklayınca WhatsApp'ın kendi
+    // görüntüleyicisi açılır, resmi oradan alıp kendi önizlememize koyarız.
+    // Kapatmak için: IMAGE_PREVIEW = false
+    // ============================================================
+    const IMAGE_PREVIEW = true;
+
+    let imgPending = false;
+    let imgTimer = null;
+
+    // Tıklanan yerde, mesaj balonu içinde, yeterince büyük bir resim var mı?
+    function findClickedImage(e) {
+        const t = e.target;
+        if (!t || !t.closest || t.closest('#pr-pdf-viewer')) return null;
+        const row = t.closest('[data-id]');
+        if (!row) return null;
+        // video / gif balonlarına dokunma
+        if (row.querySelector('[data-icon*="play" i], [data-icon*="video" i], [data-icon*="gif" i]')) return null;
+        const els = document.elementsFromPoint(e.clientX, e.clientY);
+        for (const el of els) {
+            if (el.tagName !== 'IMG' || !row.contains(el)) continue;
+            if (!/^(blob:|data:)/.test(el.src || '')) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width >= 120 && r.height >= 120) return el;
+        }
+        return null;
+    }
+
+    // WhatsApp'ın tam ekran medya görüntüleyicisinin kök elemanı
+    function waViewerRoot() {
+        const btn = document.querySelector('[data-icon="x-viewer"]')
+            || document.querySelector('button[aria-label="Kapat"]')
+            || document.querySelector('button[aria-label="Close"]');
+        if (!btn) return null;
+        let el = btn.parentElement;
+        while (el && el !== document.body && el !== document.documentElement) {
+            if (el.querySelector('#pane-side, [data-id]')) return null;   // sohbet ekranına kadar çıktık, görüntüleyici değil
+            const r = el.getBoundingClientRect();
+            if (r.width >= window.innerWidth * 0.9 && r.height >= window.innerHeight * 0.9) return el;
+            el = el.parentElement;
+        }
+        return null;
+    }
+
+    function pickViewerImage(root, blobOnly) {
+        let best = null, bestArea = 0;
+        for (const im of root.querySelectorAll('img')) {
+            const src = im.src || '';
+            if (!(src.startsWith('blob:') || (!blobOnly && src.startsWith('data:')))) continue;
+            if (!im.complete || !im.naturalWidth) continue;
+            const r = im.getBoundingClientRect();
+            if (r.width < 150 || r.height < 150) continue;
+            const area = r.width * r.height;
+            if (area > bestArea) { best = im; bestArea = area; }
+        }
+        return best;
+    }
+
+    function openImageInViewer(src) {
+        showLoading();
+        const token = ++renderToken;
+        currentOrigHref = src;
+        viewerTitle.textContent = '🖼️ Resim yükleniyor...';
+
+        fetch(src)
+            .then(r => r.blob())
+            .then(b => {
+                if (token !== renderToken) return;
+                const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' })[b.type] || 'jpg';
+                const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+                currentName = 'WhatsApp-Resim-' + stamp + '.' + ext;
+                revokeCurrent();
+                currentUrl = URL.createObjectURL(b);
+
+                const img = document.createElement('img');
+                Object.assign(img.style, {
+                    display: 'block',
+                    margin: '0 auto',
+                    maxWidth: '100%',
+                    maxHeight: 'calc(100vh - 110px)',
+                    background: '#fff',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                    borderRadius: '2px',
+                    cursor: 'zoom-in'
+                });
+                let zoomed = false;
+                img.addEventListener('click', () => {   // tıkla: yakınlaş / uzaklaş
+                    zoomed = !zoomed;
+                    img.style.maxWidth = zoomed ? 'none' : '100%';
+                    img.style.maxHeight = zoomed ? 'none' : 'calc(100vh - 110px)';
+                    img.style.cursor = zoomed ? 'zoom-out' : 'zoom-in';
+                });
+                img.onload = () => {
+                    if (token !== renderToken) return;
+                    pdfReady = true;                      // Yazdır düğmesi hazır
+                    viewerMsg.style.display = 'none';
+                };
+                img.onerror = () => {
+                    if (token !== renderToken) return;
+                    viewerMsg.style.display = 'block';
+                    viewerMsg.textContent = 'Resim gösterilemedi.';
+                };
+                viewerPages.textContent = '';
+                viewerPages.appendChild(img);
+                img.src = currentUrl;
+                viewerTitle.textContent = '🖼️ ' + currentName;
+
+                // WhatsApp'ın kendi görüntüleyicisini kapat (resmi zaten aldık)
+                if (typeof window.__prClosePreview === 'function') {
+                    setTimeout(window.__prClosePreview, 150);
+                }
+            })
+            .catch(err => {
+                console.log('[PDF-ROKET] Resim önizleme hatası:', err);
+                if (token === renderToken) {
+                    viewerMsg.style.display = 'block';
+                    viewerMsg.textContent = 'Resim gösterilemedi.';
+                }
+            });
+    }
+
+    function startImageOpen() {
+        if (imgPending) return;
+        imgPending = true;
+        const startedAt = Date.now();
+        let rootSeenAt = 0;
+        const stop = () => { clearInterval(imgTimer); imgPending = false; };
+
+        clearInterval(imgTimer);
+        imgTimer = setInterval(() => {
+            const now = Date.now();
+            if (now - startedAt > 8000) { stop(); return; }   // görüntüleyici hiç açılmadı (çıkartma vb.)
+            const root = waViewerRoot();
+            if (!root) return;
+            if (!rootSeenAt) rootSeenAt = now;
+            if (root.querySelector('video')) { stop(); return; }   // video: WhatsApp'ın kendi oynatıcısı kalsın
+            let im = pickViewerImage(root, true);
+            if (!im && now - rootSeenAt > 3500) im = pickViewerImage(root, false);
+            if (!im) return;
+            stop();
+            openImageInViewer(im.src);
+        }, 120);
+    }
+
+    document.addEventListener('click', function (e) {
+        if (!IMAGE_PREVIEW || !e.isTrusted) return;
+        if (findClickedImage(e)) startImageOpen();
     }, true);
 })();
