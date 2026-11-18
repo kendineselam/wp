@@ -1,1 +1,2 @@
-- Bildirim ekranda takılı kalma sorunu giderildi (fare üstünde unutulsa bile en geç süre + 15 sn sonra kapanır)
+- Uygulama kilidi: Kilit menüsünden şifre belirle, otomatik kilit, "şifremi unuttum" (WhatsApp oturumunu sıfırlar)
+- Bildirime tek tıklayınca ya da çift tıklayınca mesajı aç ayarı (Bildirimler menüsü)
