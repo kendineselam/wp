@@ -1,2 +1,4 @@
-- Uygulama kilidi: Kilit menüsünden şifre belirle, otomatik kilit, "şifremi unuttum" (WhatsApp oturumunu sıfırlar)
-- Bildirime tek tıklayınca ya da çift tıklayınca mesajı aç ayarı (Bildirimler menüsü)
+- Resimlere tıklayınca da PDF önizlemesi gibi kendi önizlememiz açılıyor (indir, yazdır, yeni pencere, tıklayınca gerçek boyut)
+- Ctrl + ve Ctrl - kısayolları artık yakınlaştırıp uzaklaştırıyor (Ctrl 0 sıfırlar)
+- PDF önizlemede arama kutusu eklendi (Ctrl+F, Enter = sonraki, Shift+Enter = önceki)
+- "Yeni Sekmede Aç" düzeltildi, PDF ve resim ayrı bir pencerede açılıyor

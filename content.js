@@ -40,6 +40,18 @@
     let currentName = 'dosya.pdf';
     let renderToken = 0;
     let pdfReady = false;
+    const STANDALONE = !!window.__prStandalone;   // "Yeni sekmede aç" ile açılan ayrı PDF penceresi
+
+    // Arama durumu
+    let searchInput = null;
+    let searchCount = null;
+    let searchQuery = '';
+    let searchTimer = null;
+    let pageInfo = [];
+    let matches = [];
+    let curMatch = -1;
+    let scanning = false;
+    let searchGroup = null;
 
     const origClick = HTMLAnchorElement.prototype.click;
 
@@ -77,7 +89,9 @@
                     #pr-pdf-bar { display: none !important; }
                     #pr-pdf-body { position: static !important; padding: 0 !important; overflow: visible !important; }
                     #pr-pdf-pages { position: static !important; overflow: visible !important; height: auto !important; padding: 0 !important; background: #fff !important; }
-                    #pr-pdf-pages canvas { display: block !important; width: 100% !important; height: auto !important; margin: 0 !important; box-shadow: none !important; border-radius: 0 !important; break-after: page; page-break-after: always; }
+                    #pr-pdf-pages .pr-page { width: 100% !important; height: auto !important; margin: 0 !important; box-shadow: none !important; border-radius: 0 !important; break-after: page; page-break-after: always; }
+                    #pr-pdf-pages canvas { display: block !important; width: 100% !important; height: auto !important; margin: 0 !important; }
+                    .pr-hl { display: none !important; }
                     #pr-pdf-pages img { display: block !important; width: auto !important; height: auto !important; max-width: 100% !important; max-height: 250mm !important; object-fit: contain !important; margin: 0 auto !important; box-shadow: none !important; border-radius: 0 !important; cursor: default !important; break-inside: avoid; page-break-inside: avoid; }
                 }
             `;
@@ -116,11 +130,72 @@
             whiteSpace: 'nowrap',
             fontFamily: 'sans-serif'
         });
+        viewerTitle.style.minWidth = '0';
         bar.appendChild(viewerTitle);
+
+        // Arama kutusu
+        const sg = document.createElement('div');
+        Object.assign(sg.style, {
+            display: 'flex', alignItems: 'center', marginLeft: '8px',
+            background: '#2a3942', borderRadius: '8px', padding: '2px 4px'
+        });
+        searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.id = 'pr-pdf-search';
+        searchInput.placeholder = 'Ara (Ctrl+F)';
+        searchInput.setAttribute('autocomplete', 'off');
+        searchInput.spellcheck = false;
+        Object.assign(searchInput.style, {
+            width: '190px', background: 'transparent', color: '#e9edef', border: 'none',
+            outline: 'none', padding: '6px 8px', fontSize: '13px', fontFamily: 'sans-serif'
+        });
+        searchCount = document.createElement('span');
+        Object.assign(searchCount.style, {
+            color: '#8696a0', fontSize: '12px', minWidth: '56px', textAlign: 'right',
+            padding: '0 6px', whiteSpace: 'nowrap', fontFamily: 'sans-serif'
+        });
+        const navBtn = (label, title, delta) => {
+            const b = document.createElement('button');
+            b.textContent = label;
+            b.title = title;
+            Object.assign(b.style, {
+                background: 'transparent', color: '#e9edef', border: 'none', cursor: 'pointer',
+                padding: '4px 8px', fontSize: '12px'
+            });
+            b.addEventListener('click', () => { gotoMatch(delta); searchInput.focus(); });
+            return b;
+        };
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                searchQuery = searchInput.value.replace(/\s+/g, ' ').trim();
+                curMatch = -1;
+                refreshSearch(true);
+            }, 150);
+        });
+        // WhatsApp Web'in kendi kısayolları yazmayı bozmasın
+        ['keydown', 'keyup', 'keypress', 'paste', 'cut', 'copy'].forEach((ev) => {
+            searchInput.addEventListener(ev, (e) => {
+                if (ev === 'keydown' && e.key === 'Enter') {
+                    e.preventDefault();
+                    clearTimeout(searchTimer);
+                    const q = searchInput.value.replace(/\s+/g, ' ').trim();
+                    if (q !== searchQuery) { searchQuery = q; curMatch = -1; refreshSearch(true); }
+                    else gotoMatch(e.shiftKey ? -1 : 1);
+                }
+                e.stopPropagation();
+            });
+        });
+        sg.appendChild(searchInput);
+        sg.appendChild(searchCount);
+        sg.appendChild(navBtn('▲', 'Önceki (Shift+Enter)', -1));
+        sg.appendChild(navBtn('▼', 'Sonraki (Enter)', 1));
+        searchGroup = sg;
+        bar.appendChild(sg);
 
         bar.appendChild(makeBtn('🖨️ Yazdır', '#25D366', printPdf));
         bar.appendChild(makeBtn('💾 İndir', '#128C7E', downloadPdf));
-        bar.appendChild(makeBtn('↗ Yeni Sekmede Aç', '#34657b', openInTab));
+        if (!STANDALONE) bar.appendChild(makeBtn('↗ Yeni Sekmede Aç', '#34657b', openInTab));
         bar.appendChild(makeBtn('✕ Kapat', '#c0392b', hideViewer));
 
         const body = document.createElement('div');
@@ -162,14 +237,17 @@
         document.body.appendChild(viewerEl);
     }
 
-    function showLoading() {
+    function showLoading(kind) {
         if (!document.body) return;
         buildViewer();
-        viewerTitle.textContent = 'PDF yükleniyor...';
-        viewerMsg.textContent = 'PDF yükleniyor...';
+        const isImg = kind === 'image';
+        if (searchGroup) searchGroup.style.display = isImg ? 'none' : 'flex';   // resimde arama yok
+        viewerTitle.textContent = isImg ? 'Resim yükleniyor...' : 'PDF yükleniyor...';
+        viewerMsg.textContent = isImg ? 'Resim yükleniyor...' : 'PDF yükleniyor...';
         viewerMsg.style.display = 'block';
         viewerPages.textContent = '';
         pdfReady = false;
+        resetSearch(true);
         viewerEl.style.display = 'flex';
     }
 
@@ -186,12 +264,179 @@
         viewerEl.style.display = 'none';
         if (viewerPages) viewerPages.textContent = '';
         pdfReady = false;
+        resetSearch(true);
         revokeCurrent();
         currentOrigHref = null;
+        if (STANDALONE) { try { window.close(); } catch (e) {} }
     }
 
     function isViewerOpen() {
         return viewerEl && viewerEl.style.display !== 'none';
+    }
+
+    // ============================================================
+    // ARAMA (metin / sayı) - sayfa üstüne sarı vurgu çizer
+    // ============================================================
+    // Büyük/küçük harf ve Türkçe i/İ/ı/I farkı gözetmez. Her karakter 1 karaktere döner (uzunluk korunur).
+    function fold(str) {
+        let o = '';
+        for (let i = 0; i < str.length; i++) {
+            const c = str[i];
+            if (c === '\u0130' || c === 'I' || c === '\u0131') { o += 'i'; continue; }
+            const l = c.toLowerCase();
+            o += (l.length === 1 ? l : c);
+        }
+        return o;
+    }
+
+    function resetSearch(clearInput) {
+        clearTimeout(searchTimer);
+        pageInfo = [];
+        matches = [];
+        curMatch = -1;
+        scanning = false;
+        if (clearInput) {
+            searchQuery = '';
+            if (searchInput) searchInput.value = '';
+        }
+        if (viewerPages) viewerPages.querySelectorAll('.pr-hl').forEach((n) => n.remove());
+        updateCount();
+    }
+
+    function buildPageText(tc, vp, wrap) {
+        let text = '';
+        const parts = [];
+        let prev = null;
+        for (const it of tc.items) {
+            if (typeof it.str !== 'string') continue;
+            if (!it.str) {
+                if (it.hasEOL && text && !/\s$/.test(text)) text += ' ';
+                continue;
+            }
+            const t = it.transform;
+            const h = Math.hypot(t[2], t[3]) || it.height || 10;
+            if (prev && text && !/\s$/.test(text) && !/^\s/.test(it.str)) {
+                const sameLine = Math.abs(t[5] - prev.y) < prev.h * 0.5;
+                const gap = t[4] - (prev.x + prev.w);
+                if (!sameLine || gap > prev.h * 0.15) text += ' ';
+            }
+            const start = text.length;
+            text += it.str;
+            parts.push({ start, end: text.length, t, w: it.width, h, len: it.str.length });
+            prev = { x: t[4], y: t[5], w: it.width, h };
+            if (it.hasEOL && !/\s$/.test(text)) text += ' ';
+        }
+        return { wrap, vp, text, folded: fold(text), parts };
+    }
+
+    function matchRects(m) {
+        const info = pageInfo[m.pi];
+        if (!info) return [];
+        const out = [];
+        for (const p of info.parts) {
+            if (p.end <= m.s || p.start >= m.e) continue;
+            const a = Math.max(m.s, p.start) - p.start;
+            const b = Math.min(m.e, p.end) - p.start;
+            let ux = p.t[0], uy = p.t[1];
+            const ul = Math.hypot(ux, uy);
+            if (ul) { ux /= ul; uy /= ul; } else { ux = 1; uy = 0; }
+            const nx = -uy, ny = ux;
+            const d0 = p.w * a / p.len, d1 = p.w * b / p.len;
+            const x = p.t[4], y = p.t[5];
+            const pts = [
+                [x + ux * d0 - nx * p.h * 0.2, y + uy * d0 - ny * p.h * 0.2],
+                [x + ux * d1 - nx * p.h * 0.2, y + uy * d1 - ny * p.h * 0.2],
+                [x + ux * d1 + nx * p.h * 0.85, y + uy * d1 + ny * p.h * 0.85],
+                [x + ux * d0 + nx * p.h * 0.85, y + uy * d0 + ny * p.h * 0.85]
+            ].map((q) => info.vp.convertToViewportPoint(q[0], q[1]));
+            const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
+            const left = Math.min.apply(null, xs), top = Math.min.apply(null, ys);
+            out.push({ left, top, width: Math.max.apply(null, xs) - left, height: Math.max.apply(null, ys) - top });
+        }
+        return out;
+    }
+
+    function drawHighlights() {
+        if (!viewerPages) return;
+        viewerPages.querySelectorAll('.pr-hl').forEach((n) => n.remove());
+        matches.forEach((m, mi) => {
+            const info = pageInfo[m.pi];
+            if (!info) return;
+            const cur = mi === curMatch;
+            matchRects(m).forEach((r) => {
+                const d = document.createElement('div');
+                d.className = 'pr-hl';
+                Object.assign(d.style, {
+                    position: 'absolute',
+                    left: r.left + 'px', top: r.top + 'px',
+                    width: r.width + 'px', height: r.height + 'px',
+                    background: cur ? 'rgba(255,120,0,0.55)' : 'rgba(255,213,0,0.45)',
+                    outline: cur ? '2px solid rgba(255,90,0,0.9)' : 'none',
+                    mixBlendMode: 'multiply',
+                    pointerEvents: 'none',
+                    borderRadius: '2px'
+                });
+                info.wrap.appendChild(d);
+            });
+        });
+    }
+
+    function updateCount() {
+        if (!searchCount) return;
+        if (!searchQuery) { searchCount.textContent = ''; return; }
+        if (!matches.length) { searchCount.textContent = scanning ? 'taranıyor…' : 'Sonuç yok'; return; }
+        searchCount.textContent = (curMatch + 1) + '/' + matches.length + (scanning ? '…' : '');
+    }
+
+    function scrollToCurrent() {
+        const m = matches[curMatch];
+        if (!m || !viewerPages) return;
+        const info = pageInfo[m.pi];
+        const rects = matchRects(m);
+        if (!info || !rects.length) return;
+        const top = info.wrap.offsetTop + rects[0].top;
+        viewerPages.scrollTo({ top: Math.max(0, top - viewerPages.clientHeight / 3), behavior: 'smooth' });
+    }
+
+    function refreshSearch(jump) {
+        const q = fold(searchQuery);
+        matches = [];
+        if (q) {
+            outer:
+            for (let pi = 0; pi < pageInfo.length; pi++) {
+                const info = pageInfo[pi];
+                if (!info) continue;
+                let from = 0;
+                while (true) {
+                    const idx = info.folded.indexOf(q, from);
+                    if (idx < 0) break;
+                    matches.push({ pi, s: idx, e: idx + q.length });
+                    from = idx + Math.max(1, q.length);
+                    if (matches.length >= 2000) break outer;
+                }
+            }
+        }
+        let first = false;
+        if (!matches.length) curMatch = -1;
+        else if (curMatch < 0) { curMatch = 0; first = true; }
+        else if (curMatch >= matches.length) curMatch = matches.length - 1;
+        drawHighlights();
+        updateCount();
+        if (jump || first) scrollToCurrent();
+    }
+
+    function gotoMatch(delta) {
+        if (!matches.length) return;
+        curMatch = (curMatch + delta + matches.length) % matches.length;
+        drawHighlights();
+        updateCount();
+        scrollToCurrent();
+    }
+
+    function focusSearch() {
+        if (!searchInput) return;
+        searchInput.focus();
+        searchInput.select();
     }
 
     async function renderPdf(arrayBuffer, token) {
@@ -202,6 +447,7 @@
         const pdf = await loadingTask.promise;
         if (token !== renderToken) return;
 
+        scanning = true;
         const cssWidth = Math.max(300, Math.min(1000, viewerPages.clientWidth - 32));
         const outputScale = Math.max(window.devicePixelRatio || 1, 1.5);
 
@@ -210,29 +456,59 @@
             const page = await pdf.getPage(i);
             const base = page.getViewport({ scale: 1 });
             const scale = cssWidth / base.width;
+            const cssVp = page.getViewport({ scale });
             const viewport = page.getViewport({ scale: scale * outputScale });
 
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.floor(viewport.width);
-            canvas.height = Math.floor(viewport.height);
-            Object.assign(canvas.style, {
-                display: 'block',
+            const wrap = document.createElement('div');
+            wrap.className = 'pr-page';
+            Object.assign(wrap.style, {
+                position: 'relative',
                 width: cssWidth + 'px',
-                height: (canvas.height / outputScale) + 'px',
+                height: cssVp.height + 'px',
                 margin: '0 auto 16px auto',
                 background: '#fff',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
                 borderRadius: '2px'
             });
 
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            Object.assign(canvas.style, { display: 'block', width: '100%', height: '100%' });
+            wrap.appendChild(canvas);
+
             if (token !== renderToken) return;
-            viewerPages.appendChild(canvas);
+            viewerPages.appendChild(wrap);
             await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
 
             if (i === 1) {
                 pdfReady = true;
                 viewerMsg.style.display = 'none';
             }
+
+            // Arama için sayfa metnini çıkar
+            try {
+                const tc = await page.getTextContent();
+                if (token !== renderToken) return;
+                pageInfo[i - 1] = buildPageText(tc, cssVp, wrap);
+                if (searchQuery) refreshSearch(false);
+            } catch (e) {
+                console.log('[PDF-ROKET] Metin çıkarılamadı (sayfa ' + i + '):', e);
+            }
+        }
+        if (token === renderToken) {
+            scanning = false;
+            updateCount();
+        }
+    }
+
+    function showOpenError(token, err) {
+        console.log('[PDF-ROKET] Önizleme hatası:', err);
+        if (token === renderToken) {
+            viewerMsg.style.display = 'block';
+            viewerMsg.textContent = STANDALONE
+                ? 'PDF gösterilemedi.'
+                : 'PDF gösterilemedi. "Yeni Sekmede Aç" ile deneyin.';
         }
     }
 
@@ -252,13 +528,34 @@
                 return pdfBlob.arrayBuffer();
             })
             .then(buf => renderPdf(buf, token))
-            .catch(err => {
-                console.log('[PDF-ROKET] Önizleme hatası:', err);
-                if (token === renderToken) {
-                    viewerMsg.style.display = 'block';
-                    viewerMsg.textContent = 'PDF gösterilemedi. "Yeni Sekmede Aç" ile deneyin.';
-                }
-            });
+            .catch(err => showOpenError(token, err));
+    }
+
+    // Ayrı pencerede (Yeni Sekmede Aç) bayt dizisinden aç
+    function openBytesInViewer(bytes, name) {
+        if (/\.(jpe?g|png|webp|gif|bmp)$/i.test(String(name || ''))) {
+            showLoading('image');
+            const itoken = ++renderToken;
+            currentOrigHref = null;
+            try { document.title = name; } catch (e) {}
+            const mimes = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', bmp: 'image/bmp' };
+            const ext = String(name).split('.').pop().toLowerCase();
+            showImageBlob(new Blob([bytes], { type: mimes[ext] || 'image/jpeg' }), itoken, name, false);
+            return;
+        }
+        showLoading();
+        const token = ++renderToken;
+        currentOrigHref = null;
+        currentName = name || 'dosya.pdf';
+        viewerTitle.textContent = '📄 ' + currentName;
+        try { document.title = currentName; } catch (e) {}
+
+        const pdfBlob = new Blob([bytes], { type: 'application/pdf' });
+        revokeCurrent();
+        currentUrl = URL.createObjectURL(pdfBlob);
+        pdfBlob.arrayBuffer()
+            .then(buf => renderPdf(buf, token))
+            .catch(err => showOpenError(token, err));
     }
 
     function printPdf() {
@@ -281,17 +578,49 @@
         setTimeout(() => a.remove(), 1000);
     }
 
-    function openInTab() {
+    async function openInTab() {
         const url = currentUrl || currentOrigHref;
-        if (url) window.open(url, '_blank');
+        if (!url) return;
+        // Yeni sürüm: PDF'i uygulamanın kendi penceresinde (arama / yazdır dahil) açar
+        if (window.__prPdf && typeof window.__prPdf.open === 'function') {
+            try {
+                const buf = await (await fetch(url)).arrayBuffer();
+                window.__prPdf.open(new Uint8Array(buf), currentName);
+                return;
+            } catch (e) {
+                console.log('[PDF-ROKET] Yeni pencere açılamadı, eski yönteme dönülüyor:', e);
+            }
+        }
+        window.open(url, '_blank');
     }
 
     document.addEventListener('keydown', function (e) {
         if (!e.isTrusted) return;
-        if (e.key === 'Escape' && isViewerOpen()) {
+        if (!isViewerOpen()) return;
+        if (e.key === 'Escape') {
             e.stopPropagation();
             e.preventDefault();
+            // Arama kutusunda yazı varsa önce aramayı temizle, yoksa önizlemeyi kapat
+            if (e.target === searchInput && searchInput.value) {
+                searchInput.value = '';
+                searchQuery = '';
+                curMatch = -1;
+                refreshSearch(false);
+                return;
+            }
             hideViewer();
+            return;
+        }
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
+            e.stopPropagation();
+            e.preventDefault();
+            focusSearch();
+            return;
+        }
+        if (e.key === 'F3') {
+            e.stopPropagation();
+            e.preventDefault();
+            gotoMatch(e.shiftKey ? -1 : 1);
         }
     }, true);
 
@@ -466,7 +795,7 @@
     }
 
     function openImageInViewer(src) {
-        showLoading();
+        showLoading('image');
         const token = ++renderToken;
         currentOrigHref = src;
         viewerTitle.textContent = '🖼️ Resim yükleniyor...';
@@ -475,49 +804,7 @@
             .then(r => r.blob())
             .then(b => {
                 if (token !== renderToken) return;
-                const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' })[b.type] || 'jpg';
-                const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
-                currentName = 'WhatsApp-Resim-' + stamp + '.' + ext;
-                revokeCurrent();
-                currentUrl = URL.createObjectURL(b);
-
-                const img = document.createElement('img');
-                Object.assign(img.style, {
-                    display: 'block',
-                    margin: '0 auto',
-                    maxWidth: '100%',
-                    maxHeight: 'calc(100vh - 110px)',
-                    background: '#fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-                    borderRadius: '2px',
-                    cursor: 'zoom-in'
-                });
-                let zoomed = false;
-                img.addEventListener('click', () => {   // tıkla: yakınlaş / uzaklaş
-                    zoomed = !zoomed;
-                    img.style.maxWidth = zoomed ? 'none' : '100%';
-                    img.style.maxHeight = zoomed ? 'none' : 'calc(100vh - 110px)';
-                    img.style.cursor = zoomed ? 'zoom-out' : 'zoom-in';
-                });
-                img.onload = () => {
-                    if (token !== renderToken) return;
-                    pdfReady = true;                      // Yazdır düğmesi hazır
-                    viewerMsg.style.display = 'none';
-                };
-                img.onerror = () => {
-                    if (token !== renderToken) return;
-                    viewerMsg.style.display = 'block';
-                    viewerMsg.textContent = 'Resim gösterilemedi.';
-                };
-                viewerPages.textContent = '';
-                viewerPages.appendChild(img);
-                img.src = currentUrl;
-                viewerTitle.textContent = '🖼️ ' + currentName;
-
-                // WhatsApp'ın kendi görüntüleyicisini kapat (resmi zaten aldık)
-                if (typeof window.__prClosePreview === 'function') {
-                    setTimeout(window.__prClosePreview, 150);
-                }
+                showImageBlob(b, token, null, true);
             })
             .catch(err => {
                 console.log('[PDF-ROKET] Resim önizleme hatası:', err);
@@ -526,6 +813,57 @@
                     viewerMsg.textContent = 'Resim gösterilemedi.';
                 }
             });
+    }
+
+    // Resim baytlarını önizlemeye koyar. fixedName verilirse dosya adı o olur; closeWa: WhatsApp'ın kendi görüntüleyicisini kapat.
+    function showImageBlob(b, token, fixedName, closeWa) {
+        const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' })[b.type] || 'jpg';
+        if (fixedName) {
+            currentName = fixedName;
+        } else {
+            const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+            currentName = 'WhatsApp-Resim-' + stamp + '.' + ext;
+        }
+        revokeCurrent();
+        currentUrl = URL.createObjectURL(b);
+
+        const img = document.createElement('img');
+        Object.assign(img.style, {
+            display: 'block',
+            margin: '0 auto',
+            maxWidth: '100%',
+            maxHeight: 'calc(100vh - 110px)',
+            background: '#fff',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+            borderRadius: '2px',
+            cursor: 'zoom-in'
+        });
+        let zoomed = false;
+        img.addEventListener('click', () => {   // tıkla: yakınlaş / uzaklaş
+            zoomed = !zoomed;
+            img.style.maxWidth = zoomed ? 'none' : '100%';
+            img.style.maxHeight = zoomed ? 'none' : 'calc(100vh - 110px)';
+            img.style.cursor = zoomed ? 'zoom-out' : 'zoom-in';
+        });
+        img.onload = () => {
+            if (token !== renderToken) return;
+            pdfReady = true;                      // Yazdır düğmesi hazır
+            viewerMsg.style.display = 'none';
+        };
+        img.onerror = () => {
+            if (token !== renderToken) return;
+            viewerMsg.style.display = 'block';
+            viewerMsg.textContent = 'Resim gösterilemedi.';
+        };
+        viewerPages.textContent = '';
+        viewerPages.appendChild(img);
+        img.src = currentUrl;
+        viewerTitle.textContent = '🖼️ ' + currentName;
+
+        // WhatsApp'ın kendi görüntüleyicisini kapat (resmi zaten aldık)
+        if (closeWa && typeof window.__prClosePreview === 'function') {
+            setTimeout(window.__prClosePreview, 150);
+        }
     }
 
     function startImageOpen() {
@@ -555,4 +893,17 @@
         if (!IMAGE_PREVIEW || !e.isTrusted) return;
         if (findClickedImage(e)) startImageOpen();
     }, true);
+
+    // Ayrı PDF penceresi: veriyi ana süreçten alıp doğrudan göster
+    if (STANDALONE) {
+        const go = function () {
+            if (!window.__prPdf || typeof window.__prPdf.getData !== 'function') return;
+            window.__prPdf.getData().then(function (d) {
+                if (!d || !d.bytes) return;
+                openBytesInViewer(d.bytes, d.name);
+            }).catch(function (e) { console.log('[PDF-ROKET] PDF verisi alınamadı:', e); });
+        };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
+        else go();
+    }
 })();
