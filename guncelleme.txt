@@ -1,0 +1,10 @@
+# PDF ROKET WHATSAPP - TEK GUNCELLEME DOSYASI (GitHub'da ana klasorde durur)
+#
+# program = programin kendisinin surumu (main.js vb. degisince bu sayiyi artir)
+# script  = scriptlerin surumu (content.js degisince bu sayiyi artir)
+# altta   = indirilecek dosyalar, her satira bir tane
+#           content.js -> script grubu | digerleri (main.js ...) -> program grubu
+program=9
+script=6
+main.js
+content.js
