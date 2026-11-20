@@ -1,8 +1,10 @@
-# TEK GUNCELLEME DOSYASI (GitHub ana klasorunde durur)
+# PDF ROKET WHATSAPP - TEK GUNCELLEME DOSYASI (GitHub'da ana klasorde durur)
 #
-# program = programin kendisi (wp.zip). guncelleme-hazirla.bat bu sayiyi OTOMATIK artirir.
-# script  = scriptler (numara.js gibi). Script ekleyince / degistirince bu sayiyi ELLE artir.
-# altta   = WhatsApp sayfasina yuklenecek .js dosyalari, her satira bir tane
-program=11
-script=2
-numara.js
+# program = programin kendisinin surumu (main.js vb. degisince bu sayiyi artir)
+# script  = scriptlerin surumu (content.js degisince bu sayiyi artir)
+# altta   = indirilecek dosyalar, her satira bir tane
+#           content.js -> script grubu | digerleri (main.js ...) -> program grubu
+program=9
+script=6
+main.js
+content.js

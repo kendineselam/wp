@@ -1,6 +1,4 @@
+- Güncelleme sistemi yenilendi: tek dosyadan (guncelleme.txt) sürüm kontrolü
 - Uygulama kilidi: Kilit menüsünden şifre belirle, otomatik kilit, "şifremi unuttum" (WhatsApp oturumunu sıfırlar)
 - Bildirime tek tıklayınca ya da çift tıklayınca mesajı aç ayarı (Bildirimler menüsü)
 - Yakınlaştırma: Ctrl + ile yakınlaştır, Ctrl - ile uzaklaştır, Ctrl 0 ile sıfırla (Ctrl + fare tekerleği de çalışır)
-- PDF Roket: PDF içinde arama
-- WhatsApp'ta +90 ile başlayan numaralar buton olur, tıklayınca +90 olmadan kopyalanır (numara.js)
-
