@@ -2,3 +2,4 @@
 - Uygulama kilidi: Kilit menüsünden şifre belirle, otomatik kilit, "şifremi unuttum" (WhatsApp oturumunu sıfırlar)
 - Bildirime tek tıklayınca ya da çift tıklayınca mesajı aç ayarı (Bildirimler menüsü)
 - Yakınlaştırma: Ctrl + ile yakınlaştır, Ctrl - ile uzaklaştır, Ctrl 0 ile sıfırla (Ctrl + fare tekerleği de çalışır)
+- WhatsApp numara kopyalama: +90 ile başlayan numaralar butona dönüşür, tıklayınca +90 olmadan kopyalanır
