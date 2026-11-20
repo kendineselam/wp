@@ -5,6 +5,6 @@
 # altta   = indirilecek dosyalar, her satira bir tane
 #           content.js -> script grubu | digerleri (main.js ...) -> program grubu
 program=13
-script=14
+script=15
 main.js
 content.js

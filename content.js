@@ -167,6 +167,19 @@
             });
 
             console.log('[PDF-ROKET] numara kopyalama aktif');
+
+            // GEÇİCİ TEŞHİS: kodun çalıştığını ekranda göster (sorun çözülünce kaldırılacak)
+            function diagToast(text) {
+                try {
+                    const t = document.createElement('div');
+                    t.textContent = text;
+                    t.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:2147483647;background:#075E54;color:#fff;padding:8px 12px;border-radius:8px;font:13px sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.4);pointer-events:none';
+                    document.body.appendChild(t);
+                    setTimeout(() => { try { t.remove(); } catch (e) {} }, 6000);
+                } catch (e) {}
+            }
+            diagToast('Numara kopyalama yüklendi ✓');
+            setTimeout(() => diagToast('Ekranda ' + document.querySelectorAll('.tm-numara-btn').length + ' numara düğmesi var'), 9000);
         }
 
         // Tıklayınca kopyala (document'e bağlı, body'yi beklemeye gerek yok)
